@@ -35,12 +35,13 @@
 #include <EEPROM.h>
 #include <Adafruit_GFX.h>   
 #include <Adafruit_ST7735.h> 
+#include <SPI.h>
 
 //Bildschirm
 //16 bit Farbe R5 G6 B5
-#define TFT_CS 10
-#define TFT_RST 9
-#define TFT_DC 8
+#define TFT_CS D2
+#define TFT_RST 1
+#define TFT_DC D4
 #define TFT_ROTATION 1
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS,  TFT_DC, TFT_RST);
 
@@ -48,10 +49,11 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS,  TFT_DC, TFT_RST);
 //WLAN Einstellungen
 char ssid[17] = "";
 char password[17] = "";
+IPAddress apIP(192, 168, 4, 1);
 ESP8266WebServer server ( 80 );
 
 //Serial Einstellungen
-int serialSpeed = 115200;
+int serialSpeed = 4800;
 String inputString="";
 String cmdString="";
 bool stringComplete=false;
@@ -61,10 +63,14 @@ int cmdLength = 20;
 String points="0";
 
 void setup() {
+  //Abschalten des Watchdogs
+  //ESP.wdtDisable();
   EEPROM.begin(34); //Freigabe von 34 Bit im EEPROM
   Serial.begin(serialSpeed);  
   
   readWlanConfig(); //Laden der WLAN Konfiguration
+  WiFi.mode(WIFI_STA);
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   WiFi.softAP(ssid, password);
 
   delay(100);
@@ -80,9 +86,13 @@ void setup() {
   //Vorbereiten des Webservers
   server.on("/Point",handlePoints);
   server.begin();
+  Serial.println("Server Config done");
 
   //Initierung des Displays
   initDisplay();
+
+  Serial.flush();
+  Serial.println("Config done");
 }
 
 //Gibt eine Leere Seite auf dem Server aus
@@ -92,21 +102,27 @@ void handlePoints(){
 
 //Voreinstellunf des Displays
 void initDisplay(){
+  
   tft.initR(INITR_BLACKTAB);  //Start mit einem leeren Tab
   tft.setTextColor(ST7735_WHITE, ST7735_BLACK); //Weißer Text, schwarzer Hintergrund
   tft.fillScreen(ST7735_BLACK); //Füllt den Bildschirm Schwarz
   tft.setTextWrap(true);  //Aktiviert das vollständige Überschreiben von Buchstaben
   tft.setRotation(TFT_ROTATION); // Gibt die Rotation des Bildschirms an
-  tft.setTextSize(4); //Gibt die Größe des Textes an
-
+  tft.setTextSize(2); //Gibt die Größe des Textes an
+/**/
+  Serial.println("Display Config done");
   //ToDo: Hier verwendete Werte dynmanisch angeben und regelbar machen.
 }
 
 void loop() {
   server.handleClient();
+//  Serial.println("Server handeled");
   serialHandler();
+ // Serial.println("Serial handeled");
   commandHandler();
+  ///Serial.println("Commands handeled");
   updateDisplay();
+ // Serial.println("Display handeled");
 }
 
 //Abhandeln Serieller Events
@@ -115,18 +131,18 @@ void serialHandler(){
   //Überprüfung ob Serielle Kommunikation zum Lesen zur Verfügung steht
   //Und ob noch kein String verarbeeitet wird
   if(Serial.available() && !stringComplete){
+    Serial.print("+");
     while (Serial.available()) {  //Solange der eingehende Text nicht abgearbeitet ist
       inputString += (char)Serial.read(); //wird Zeichen für Zeichen an den Input String gehängt
 
       //Sobald der String die Länge eines Kommandos erreicht hat
-      if(inputString.length()>cmdLength){ 
-        cmdString=inputString.substring(0,cmdLength-1); //Wird das Kommando übertragen
+      if(inputString.length()>=cmdLength){ 
+        cmdString=inputString.substring(0,cmdLength); //Wird das Kommando übertragen
         Serial.print("command Complete: ");
         Serial.println(cmdString);
         //Und die Kommandoverarbeitung sowie eine neue Ausgabe werden vorbereitet
         inputString=""; 
         stringComplete=true;
-        Serial.flush();
         return;
       }
     }
@@ -138,9 +154,10 @@ void commandHandler(){
   if(stringComplete){
     Serial.println("handling command");
     Serial.println(cmdString);
+    stringComplete=false;  
     if(cmdString.substring(0,3) == "gp:") pointCall(cmdString.substring(3));
     else customCommands();
-    stringComplete=false;  
+    
   } 
 }
 
@@ -149,7 +166,6 @@ void pointCall(String S){
   points = S;
   Serial.print("points String: ");
   Serial.println(points);
-  showPoints();
 }
 
 //Regelt die Anzeige auf dem Display
@@ -179,6 +195,7 @@ void readWlanConfig(){
     password[j] = EEPROM.read(j+16); //Überschreibt das Passwort mit p Stellen aus dem EEPROM ab Stelle 16
     j++;
   }
+  Serial.println("WLAN Config done");
 }
 
 //Schreibt 34 Bit einzeln in den EEPROM
